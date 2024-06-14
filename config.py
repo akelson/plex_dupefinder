@@ -8,7 +8,7 @@ import sys
 from plexapi.myplex import MyPlexAccount
 from getpass import getpass
 
-config_path = os.path.join(os.path.dirname(os.path.realpath(sys.argv[0])), 'config.json')
+config_path = os.path.join(os.path.dirname(os.path.realpath(__file__)), 'config.json')
 base_config = {
     'PLEX_SERVER': 'https://plex.your-server.com',
     'PLEX_TOKEN': '',
@@ -23,7 +23,9 @@ base_config = {
     'SKIP_LIST': [],
     'SCORE_FILESIZE': True,
     'AUTO_DELETE': False,
-    'FIND_DUPLICATE_FILEPATHS_ONLY': False
+    'FIND_DUPLICATE_FILEPATHS_ONLY': False,
+    'FIND_DUPLICATE_EPISODES_BY_TITLE': False,
+    'DRY_RUN': False
 }
 cfg = None
 

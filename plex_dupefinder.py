@@ -48,10 +48,28 @@ except:
 # PLEX METHODS
 ############################################################
 
+def make_episode_uid(e):
+    return e.title.lower() + e.parentGuid + e.grandparentGuid
+
+def get_dupe_episodes_by_title(plex_section_name):
+    section = plex.library.section(plex_section_name)
+    all_episodes = section.searchEpisodes()
+    dupe_dict = collections.defaultdict(list)
+    for e in all_episodes:
+        dupe_dict[make_episode_uid(e)].append(e) 
+    dupes = []
+    for episodes in dupe_dict.values():
+        if len(episodes) > 1:
+            dupes.extend(episodes)
+    return dupes
 
 def get_dupes(plex_section_name):
     sec_type = get_section_type(plex_section_name)
-    dupe_search_results = plex.library.section(plex_section_name).search(duplicate=True, libtype=sec_type)
+
+    if cfg['FIND_DUPLICATE_EPISODES_BY_TITLE']:
+        dupe_search_results = get_dupe_episodes_by_title(plex_section_name)
+    else:
+        dupe_search_results = plex.library.section(plex_section_name).search(duplicate=True, libtype=sec_type)
 
     dupe_search_results_new = dupe_search_results.copy()
     if cfg['FIND_DUPLICATE_FILEPATHS_ONLY']:
@@ -339,7 +357,7 @@ if __name__ == "__main__":
 #########################################################################
 """)
     print("Initialized")
-    process_later = {}
+    process_later = collections.defaultdict(lambda: ["", {}])
     # process sections
     print("Finding dupes...")
     for section in cfg['PLEX_LIBRARIES']:
@@ -349,7 +367,7 @@ if __name__ == "__main__":
         for item in dupes:
             if item.type == 'episode':
                 title = "%s - %02dx%02d - %s" % (
-                    item.grandparentTitle, int(item.parentIndex), int(item.index), item.title)
+                    item.grandparentTitle, int(item.parentIndex or -1), int(item.index or -1), item.title)
             elif item.type == 'movie':
                 title = item.title
             else:
@@ -366,15 +384,16 @@ if __name__ == "__main__":
                 log.info("ID: %r - Score: %s - Meta:\n%r", part.id, part_info.get('score', 'N/A'),
                          part_info)
                 parts[part.id] = part_info
-            process_later[title] = parts
+            process_later[make_episode_uid(item)][0] = f"{item.grandparentTitle} - {item.title}"
+            process_later[make_episode_uid(item)][1].update(parts)
 
     # process processed items
     time.sleep(5)
-    for item, parts in process_later.items():
+    for item, (desc, parts) in process_later.items():
         if not cfg['AUTO_DELETE']:
             partz = {}
             # manual delete
-            print("\nWhich media item do you wish to keep for %r ?\n" % item)
+            print("\nWhich media item do you wish to keep for %r ?\n" % desc)
 
             sort_key = None
             sort_order = None
@@ -400,7 +419,7 @@ if __name__ == "__main__":
 
             keep_item = input("\nChoose item to keep (0 or s = skip | 1 or b = best): ")
             if (keep_item.lower() != 's') and (keep_item.lower() == 'b' or 0 < int(keep_item) <= len(media_items)):
-                write_decision(title=item)
+                write_decision(title=desc)
                 for media_id, part_info in parts.items():
                     if keep_item.lower() == 'b' and best_item is not None and best_item == part_info:
                         print("\tKeeping  : %r" % media_id)
@@ -414,12 +433,12 @@ if __name__ == "__main__":
                         write_decision(removed=part_info)
                         time.sleep(2)
             elif keep_item.lower() == 's' or int(keep_item) == 0:
-                print("Skipping deletion(s) for %r" % item)
+                print("Skipping deletion(s) for %r" % desc)
             else:
-                print("Unexpected response, skipping deletion(s) for %r" % item)
+                print("Unexpected response, skipping deletion(s) for %r" % desc)
         else:
             # auto delete
-            print("\nDetermining best media item to keep for %r ..." % item)
+            print("\nDetermining best media item to keep for %r ..." % desc)
             keep_score = 0
             keep_id = None
 
@@ -441,12 +460,16 @@ if __name__ == "__main__":
 
             if keep_id:
                 # delete other items
-                write_decision(title=item)
+                write_decision(title=desc)
                 for media_id, part_info in parts.items():
                     if media_id == keep_id:
-                        print("\tKeeping  : %r - %r" % (media_id, part_info['file']))
+                        print("\tKeeping      : %r - %r" % (media_id, part_info['file']))
                         write_decision(keeping=part_info)
                     else:
+                        if cfg['DRY_RUN']:
+                            print("\tWould remove : %r - %r" % (media_id, part_info['file']))
+                            continue
+
                         print("\tRemoving : %r - %r" % (media_id, part_info['file']))
                         if should_skip(part_info['file']):
                             print("\tSkipping removal of this item as there is a match in SKIP_LIST")
@@ -455,4 +478,4 @@ if __name__ == "__main__":
                         write_decision(removed=part_info)
                         time.sleep(2)
             else:
-                print("Unable to determine best media item to keep for %r", item)
+                print("Unable to determine best media item to keep for %r", desc)
